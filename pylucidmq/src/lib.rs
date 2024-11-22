@@ -4,6 +4,7 @@ mod consumer;
 mod lucidmq;
 mod message;
 mod producer;
+mod lucidmq_errors;
 
 use consumer::Consumer;
 use lucidmq::LucidMQ;

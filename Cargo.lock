@@ -188,7 +188,7 @@ version = "0.1.1"
 dependencies = [
  "bincode",
  "log",
- "nolan 0.1.1",
+ "nolan",
  "rand 0.8.5",
  "serde",
 ]
@@ -227,17 +227,6 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "tempdir",
-]
-
-[[package]]
-name = "nolan"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92ebc5b1cd1db27adc9abd4a269b87faf54229306950de2a1825bbc4673f1746"
-dependencies = [
- "bincode",
- "log",
- "serde",
 ]
 
 [[package]]
@@ -299,11 +288,11 @@ dependencies = [
 
 [[package]]
 name = "pylucidmq"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "bincode",
  "log",
- "nolan 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "nolan",
  "pyo3",
  "rand 0.8.5",
  "serde",

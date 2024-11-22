@@ -1,6 +1,7 @@
 use crate::lucidmq::ConsumerGroup;
+use crate::lucidmq_errors::ConsumerError;
 use crate::message::Message;
-use log::info;
+use log::{info, error};
 use nolan::{Commitlog, CommitlogError};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -25,8 +26,11 @@ impl Consumer {
         callback: Box<dyn Fn()>,
         max_segment_size_bytes: u64,
         max_commitlog_size_bytes: u64,
-    ) -> Consumer {
-        let cl = Commitlog::new(&directory, max_segment_size_bytes, max_commitlog_size_bytes).expect("Unhandled exception");
+    ) -> Result<Consumer, ConsumerError>  {
+        let cl = Commitlog::new(&directory, max_segment_size_bytes, max_commitlog_size_bytes).map_err(|e| {
+            error!("{}", e);
+            ConsumerError::new("Unable to create a consumer for the given commitlog")
+        })?;
         let mut consumer = Consumer {
             topic: topic_name,
             commitlog: cl,
@@ -34,14 +38,14 @@ impl Consumer {
             cb: callback,
         };
         consumer.consumer_group_initialize();
-        consumer
+        Ok(consumer)
     }
 
     /**
      * Reads from the commitlog for a set amount of time and returns a vector is messages when complete. 
      * The offset where the starting read takes place is based off of the consumer group offset
      */
-    pub fn poll(&mut self, timeout: u64) -> Vec<Message> {
+    pub fn poll(&mut self, timeout: u64) -> Result<Vec<Message>, ConsumerError>  {
         //Let's check if there are any new segments added.
         self.commitlog.reload_segments();
         info!("polling for messages");
@@ -56,7 +60,10 @@ impl Consumer {
             let n = usize::try_from(self.consumer_group.offset.load(Ordering::SeqCst)).unwrap();
             match self.commitlog.read(n) {
                 Ok(buffer) => {
-                    let message = Message::deserialize_message(&buffer);
+                    let message = Message::deserialize_message(&buffer).map_err(|e| {
+                        error!("{}", e);
+                        ConsumerError::new("Unable to consume message")
+                    })?;
                     records.push(message);
                     self.update_consumer_group_offset();
                 }
@@ -75,21 +82,24 @@ impl Consumer {
         if !records.is_empty() {
             self.save_info();
         }
-        records
+        Ok(records)
     }
 
     /**
      * Given a starting offset and a max_records to return, fetch will read all of the offsets and return the records until there is no more records
      * or the max records limit has been hit.
      */
-    pub fn fetch(&mut self, starting_offset: usize, max_records: usize) -> Vec<Message> {
+    pub fn fetch(&mut self, starting_offset: usize, max_records: usize) -> Result<Vec<Message>, ConsumerError> {
         self.commitlog.reload_segments();
         let mut offset = starting_offset;
         let mut records: Vec<Message> = Vec::new();
         while records.len() < max_records {
             match self.commitlog.read(offset) {
                 Ok(buffer) => {
-                    let message = Message::deserialize_message(&buffer);
+                    let message = Message::deserialize_message(&buffer).map_err(|e| {
+                        error!("{}", e);
+                        ConsumerError::new("Unable to consume message")
+                    })?;
                     records.push(message);
                     offset += 1;
                 }
@@ -103,7 +113,7 @@ impl Consumer {
                 }
             };
         }
-        records
+        Ok(records)
     }
 
     /**
@@ -128,7 +138,7 @@ impl Consumer {
      */
     fn consumer_group_initialize(&mut self) {
         let oldest_offset = self.commitlog.get_oldest_offset();
-        let n = usize::try_from(self.consumer_group.offset.load(Ordering::SeqCst)).unwrap();
+        let n = usize::try_from(self.consumer_group.offset.load(Ordering::SeqCst)).expect("invalid offset provided, big issue");
         if n < oldest_offset {
             let new_consumer_group_offset: u32 = oldest_offset.try_into().unwrap();
             self.consumer_group

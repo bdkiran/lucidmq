@@ -1,6 +1,7 @@
 use crate::consumer::Consumer;
+use crate::lucidmq_errors::{ConsumerError, LucidMqError, ProducerError, TopicError};
 use crate::producer::Producer;
-use log::info;
+use log::{error, info};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -42,7 +43,7 @@ pub struct Topic {
 }
 
 impl Topic {
-    pub fn new(topic_name: String, base_directory: String) -> Topic {
+    pub fn new(topic_name: String, base_directory: String) -> Result<Topic, TopicError> {
         let path = Path::new(&base_directory);
         // Generate a random directory name
         let directory_name: String = thread_rng()
@@ -52,14 +53,14 @@ impl Topic {
             .collect();
         let new_path = &path.join(directory_name);
         let new_consumer_groups = Vec::new();
-        Topic {
+        Ok(Topic {
             name: topic_name,
             directory: new_path
                 .to_str()
                 .expect("unable to convert to string")
                 .to_string(),
             consumer_groups: new_consumer_groups,
-        }
+        })
     }
 
     fn load_consumer_group(&mut self, consumer_group_name: String) -> Arc<ConsumerGroup> {
@@ -99,15 +100,16 @@ impl LucidMQ {
         directory: String,
         max_segment_size_bytes: u64,
         max_topic_size_bytes: u64,
-    ) -> LucidMQ {
+    ) -> Result<LucidMQ, LucidMqError> {
         //Try to load from file
         let lucidmq_file_path = Path::new(&directory).join("lucidmq.meta");
         let file_bytes = fs::read(lucidmq_file_path);
         match file_bytes {
             Ok(bytes) => {
-                let decoded_lucidmq: LucidMQ =
-                    bincode::deserialize(&bytes).expect("Unable to deserialize message");
-                decoded_lucidmq
+                bincode::deserialize(&bytes).map_err(|e| {
+                    error!("{}", e);
+                    LucidMqError::new("Unable to deserialize lucidmq metadata")
+                })
             }
             Err(_err) => {
                 let lucidmq_vec = Vec::new();
@@ -117,25 +119,25 @@ impl LucidMQ {
                     max_segment_bytes: max_segment_size_bytes,
                     max_topic_size: max_topic_size_bytes,
                 };
-                fs::create_dir_all(directory).expect("Unable to create directory");
-                lucidmq
+                fs::create_dir_all(directory).map_err(|e| {
+                    error!("{}", e);
+                    LucidMqError::new("Unable create lucidmq directory structure")
+                })?;
+                Ok(lucidmq)
             }
         }
     }
     
-    pub fn new_topic(&mut self, topic_name: String) -> String {
-        let topic = Topic::new(topic_name, self.base_directory.clone());
+    pub fn new_topic(&mut self, topic_name: String) {
+        let topic = Topic::new(topic_name, self.base_directory.clone()).expect("thing");
         fs::create_dir_all(&topic.directory).expect("Unable to create directory");
-        let td = topic.directory.clone();
         {
             self.topics.write().unwrap().push(topic);
         }
         self.flush();
-        td
-        
     }
 
-    pub fn new_producer(&mut self, topic: String) -> Producer {
+    pub fn new_producer(&mut self, topic: String) -> Result<Producer, ProducerError> {
         let found_index = self.check_topics(&topic);
         if found_index >= 0 {
             let usize_index: usize = found_index.try_into().expect("unable to convert");
@@ -147,22 +149,22 @@ impl LucidMQ {
                 self.max_topic_size,
             )
         } else {
-            let new_topic = Topic::new(topic, self.base_directory.clone());
+            let new_topic = Topic::new(topic, self.base_directory.clone()).unwrap();
             let producer = Producer::new(
                 new_topic.directory.clone(),
                 new_topic.name.clone(),
                 self.max_segment_bytes,
                 self.max_topic_size,
-            );
+            )?;
             {
                 self.topics.write().unwrap().push(new_topic);
             }
             self.flush();
-            producer
+            Ok(producer)
         }
     }
 
-    pub fn new_consumer(&mut self, topic: String, consumer_group_name: String) -> Consumer {
+    pub fn new_consumer(&mut self, topic: String, consumer_group_name: String) -> Result<Consumer, ConsumerError> {
         let lucidmq = self.clone();
         let found_index = self.check_topics(&topic);
         if found_index >= 0 {
@@ -186,7 +188,7 @@ impl LucidMQ {
             )
         } else {
             let user_cg = Arc::new(ConsumerGroup::new(consumer_group_name.clone()));
-            let mut new_topic = Topic::new(topic, self.base_directory.clone());
+            let mut new_topic = Topic::new(topic, self.base_directory.clone()).unwrap();
             new_topic.consumer_groups.push(user_cg.clone());
             let new_directory_name = new_topic.directory.clone();
             let new_topic_name = new_topic.name.clone();

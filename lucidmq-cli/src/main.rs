@@ -8,16 +8,16 @@ use std::time::Duration;
 
 fn create_topic(topic: String) {
     let base_dir = String::from("../test_log");
-    let mut lucidmq = LucidMQ::new(base_dir, 1000, 5000);
+    let mut lucidmq = LucidMQ::new(base_dir, 1000, 5000).expect("Unable to create a new instance");
 
     lucidmq.new_topic(topic);
 }
 
 fn run_producer(topic: String) {
     let base_dir = String::from("../test_log");
-    let mut lucidmq = LucidMQ::new(base_dir, 1000, 5000);
+    let mut lucidmq = LucidMQ::new(base_dir, 1000, 5000).expect("Unable to create a new instance");
 
-    let mut producer = lucidmq.new_producer(topic);
+    let mut producer = lucidmq.new_producer(topic).expect("Unable to create a new producer");
     let second = Duration::from_millis(1000);
 
     for i in 0..100 {
@@ -31,17 +31,17 @@ fn run_producer(topic: String) {
         }}", i, i*100);
         let value_bytes = value.as_bytes();
         let message = Message::new(key_bytes, value_bytes, None);
-        producer.produce_message(message);
+        producer.produce_message(message).expect("unable to produce message");
         thread::sleep(second);
     }
 }
 
 fn run_consumer(topic: String, consumer_group: String) {
     let base_dir = String::from("../test_log");
-    let mut lucidmq = LucidMQ::new(base_dir, 1000, 5000);
-    let mut consumer = lucidmq.new_consumer(topic, consumer_group);
+    let mut lucidmq = LucidMQ::new(base_dir, 1000, 5000).expect("Unable to create a new instance");
+    let mut consumer = lucidmq.new_consumer(topic, consumer_group).expect("unable to create a new consumer");
     loop {
-        let records = consumer.poll(2000);
+        let records = consumer.poll(2000).expect("unable to poll commitlog");;
         for record in records {
             println!("--------------------------");
             println!("{}", str::from_utf8(&record.key).unwrap());

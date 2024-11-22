@@ -1,6 +1,9 @@
+use log::error;
 use serde::{Deserialize, Serialize};
 use std::str;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::lucidmq_errors::MessageError;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub struct Message {
@@ -27,14 +30,17 @@ impl Message {
         }
     }
 
-    pub fn serialize_message(&mut self) -> Vec<u8> {
-        let encoded_message: Vec<u8> = bincode::serialize(&self).expect("Unable to encode message");
-        encoded_message
+    pub fn serialize_message(&mut self) -> Result<Vec<u8>, MessageError> {
+        bincode::serialize(&self).map_err(|e| {
+            error!("{}", e);
+            MessageError::new("Unable to serialize message")
+        })
     }
 
-    pub fn deserialize_message(message_bytes: &[u8]) -> Message {
-        let decoded_message: Message =
-            bincode::deserialize(message_bytes).expect("Unable to deserialize message");
-        decoded_message
+    pub fn deserialize_message(message_bytes: &[u8]) -> Result<Message, MessageError>  {
+        bincode::deserialize(message_bytes).map_err(|e| {
+            error!("{}", e);
+            MessageError::new("Unable to deserialize message")
+        })
     }
 }
